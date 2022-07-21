@@ -1,0 +1,8 @@
+administer css layout builder:
+  title: 'Administer CSS Layout Builder assets'
+  description: 'Update CSS added to the layout builder blocks through config entity.'
+  restrict access: true
+administer js layout builder:
+  title: 'Administer JS Layout Builder assets'
+  description: 'Update JS added to the layout builder blocks through config entity.'
+  restrict access: true

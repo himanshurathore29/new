@@ -1,0 +1,461 @@
+<?php
+
+/**
+ * @file
+ * Provides hook implementations for Layout Builder Asset.
+ */
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\FieldableEntityInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\layout_builder_asset\Form\OverridesContentEntityForm;
+use Drupal\layout_builder_asset\LayoutBuilderAssetInterface;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Config\Entity\ConfigEntityType;
+
+/**
+ * Implements hook_help().
+ */
+function layout_builder_asset_help($route_name, RouteMatchInterface $route_match) {
+
+  switch ($route_name) {
+
+    // Main module help for the phone_registration module.
+    case 'help.page.layout_builder_asset':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('This module allow site builders to add a CSS and JS which can be block specific( by manually adding class name to layout block under class field) or page specific.This module is definitely not a replacement for theming, but it provides site administrators with a quick and easy way.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_delete().
+ *
+ * Delete the assets(css, js) if a layout builder
+ * entity is deleted.
+ */
+function layout_builder_asset_node_delete(EntityInterface $entity) {
+  if ($entity->hasField('layout_builder__layout')) {
+    $layoutBuilder = $entity->get('layout_builder__layout')->getValue();
+    foreach ($layoutBuilder as $section) {
+      $section = $section['section'];
+      foreach ($section->getComponents() as $component) {
+        $additional = $component->get('additional');
+        if (isset($additional['layout_builder_asset_style'])) {
+          $css = \Drupal::entityTypeManager()->getStorage('layout_builder_asset_css');
+          $asset = $css->load($additional['layout_builder_asset_style']['id']);
+          $asset && $asset->delete();
+        }
+        if (isset($additional['layout_builder_asset_js'])) {
+          $js = \Drupal::entityTypeManager()->getStorage('layout_builder_asset_js');
+          $asset = $js->load($additional['layout_builder_asset_js']['id']);
+          $asset && $asset->delete();
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Modify the configuration form for layout builder components (blocks).
+ */
+function layout_builder_asset_form_alter(&$form, FormStateInterface $formState) {
+  if (strpos($form['#form_id'], '_layout_builder_form') || ($form['#form_id'] === 'layout_builder_add_block' || $form['#form_id'] === 'layout_builder_update_block')) {
+    $form['#attached']['library'][] = 'layout_builder_asset/layout-builder-css-script';
+  }
+  if ($form['#form_id'] === 'layout_builder_add_block' || $form['#form_id'] === 'layout_builder_update_block') {
+    // Form object will be AddBlockForm or UpdateBlockForm, depending on
+    // the operation.
+    // @TODO: After save it should immediately reflect on node view page.
+    $formObject = $formState->getFormObject();
+
+    /** @var \Drupal\layout_builder\SectionComponent $component */
+    $component = $formObject
+      ->getSectionStorage()
+      ->getSection($formObject->getDelta())
+      ->getComponent($formObject->getUuid());
+
+    _layout_builder_asset_add_style_selection_form_element($form, $formState, $component);
+    array_unshift($form['#submit'], '_layout_builder_asset_submit_block_form');
+    array_unshift($form['#validate'], '_layout_builder_asset_validate_block_form');
+
+  }
+}
+
+/**
+ * Implements hook_entity_type_alter().
+ *
+ * Overriding the OverridesEntityForm from Layout Builder.
+ */
+function layout_builder_asset_entity_type_alter(array &$entity_types) {
+  foreach ($entity_types as $entity_type) {
+    if ($entity_type->entityClassImplements(FieldableEntityInterface::class)) {
+      $entity_type->setFormClass('layout_builder', OverridesContentEntityForm::class);
+    }
+  }
+}
+
+/**
+ * Create the form for the Asset entity also update the values if required.
+ */
+function _layout_builder_asset_add_style_selection_form_element(array &$form, $formState, $component) {
+
+  // Set form actions to a high weight, just so that we can make our form
+  // style element appear right before them.
+  $form['actions']['#weight'] = 100;
+
+  $form['layout_builder_asset'] = [
+    '#type' => 'textarea',
+    '#title' => t('Css Code'),
+    '#description' => t('The actual code goes in here.'),
+    '#rows' => 10,
+    '#required' => FALSE,
+  ];
+  $form['layout_builder_asset_js'] = [
+    '#type' => 'textarea',
+    '#title' => t('Js Code'),
+    '#description' => t('The actual code goes in here.'),
+    '#rows' => 10,
+    '#required' => FALSE,
+  ];
+  $form['block_class'] = [
+    '#type' => 'textfield',
+    '#title' => t('Class'),
+    '#description' => t('Add Unique Class for the Block to apply the css specifically to the current context or keep empty to use the default config block.'),
+  ];
+  $cssID = $component->get('additional')['layout_builder_asset_style']['id'];
+  $jsID = $component->get('additional')['layout_builder_asset_js']['id'];
+  $form['css_id'] = [
+    '#type' => 'hidden',
+    '#value' => $cssID,
+  ];
+  $form['js_id'] = [
+    '#type' => 'hidden',
+    '#value' => $jsID,
+  ];
+  if ($form['#form_id'] === 'layout_builder_update_block') {
+    $componentAdditionalCssData = $component->get('additional')['layout_builder_asset_style'];
+    $componentAdditionalJsData = $component->get('additional')['layout_builder_asset_js'];
+    $data = [];
+    // Load the CSS data from the created asset entity
+    // else from the tempStorage.
+    if ($cssID && $layoutBuilderAssetCss = \Drupal::entityTypeManager()->getStorage('layout_builder_asset_css')->load($cssID)) {
+      $data['code'] = $layoutBuilderAssetCss->code;
+      $data['class'] = $layoutBuilderAssetCss->class;
+    }
+    else {
+      $data['code'] = $componentAdditionalCssData['code'];
+      $data['class'] = $componentAdditionalCssData['class'];
+    }
+    $form['layout_builder_asset']['#default_value'] = $data['code'];
+    $form['block_class']['#default_value'] = $data['class'];
+
+    // Load the JS data from the created asset entity else from the tempStorage.
+    if ($jsID && $layoutBuilderAssetJs = \Drupal::entityTypeManager()->getStorage('layout_builder_asset_js')->load($jsID)) {
+      $data['code'] = $layoutBuilderAssetJs->code;
+      $data['class'] = $layoutBuilderAssetJs->class;
+    }
+    else {
+      $data['code'] = $componentAdditionalJsData['code'];
+      $data['class'] = $componentAdditionalJsData['class'];
+    }
+    $form['layout_builder_asset_js']['#default_value'] = $data['code'];
+    $form['block_class']['#default_value'] = $data['class'];
+  }
+  $form['layout_builder_asset']['#attributes']['data-ace-mode'] = 'css';
+  $form['layout_builder_asset_js']['#attributes']['data-ace-mode'] = 'javascript';
+}
+
+/**
+ * Custom submit handler for submitting Layout Builder block forms.
+ *
+ * Persists the configured block style to the component configuration data,
+ * which is later persisted to section storage by layout builder's base form.
+ */
+function _layout_builder_asset_submit_block_form(array $form, FormStateInterface $formState) {
+  $formObject = $formState->getFormObject();
+
+  $component = $formObject
+    ->getSectionStorage()
+    ->getSection($formObject->getDelta())
+    ->getComponent($formObject->getUuid());
+
+  $values = $formState->getValues();
+  $cid = $component->get('configuration')['id'];
+  if (($form['#form_id'] === 'layout_builder_update_block')) {
+    // Update the required data, which will Update the block when
+    // the layout is saved.
+    $values = $formState->getValues();
+    // Example: if block-content811537e4-f674-474a-acda-90a52d252482
+    // [replace colon with ‘’]
+    // [replace _ with -]
+    // [append block id with block-
+    // .
+    $prefixed_config_id = $formState->getValue('block_class');
+    // @todo implement options to allow user to select universal css
+    // to complete section of layout or specific to that
+    // block in the section of layout
+    $config_id = '';
+    if ($prefixed_config_id) {
+      $config_id = '.' . $prefixed_config_id . '.block-' . str_replace([':', '_'], ['', '-'], $cid);
+    }
+    else {
+      $config_id = $prefixed_config_id . '.block-' . str_replace([':', '_'], ['', '-'], $cid);
+    }
+    // For CSS.
+    if ($component->get('additional')['layout_builder_asset_style']) {
+      $data = $component->get('additional')['layout_builder_asset_style'];
+      $data['id'] = $formState->getValue('css_id');
+      $data['code'] = get_prefixed_css($formState->getValue('layout_builder_asset'), $config_id);
+      $data['label'] = ($values['settings']['label']) ? $values['settings']['label'] : $values['settings']['views_label'];
+      $data['class'] = $formState->getValue('block_class');
+
+      $component->set('layout_builder_asset_style', $data);
+    }
+    // For JS.
+    if ($component->get('additional')['layout_builder_asset_js']) {
+      $data = $component->get('additional')['layout_builder_asset_js'];
+      $data['id'] = $formState->getValue('js_id');
+      $data['code'] = get_prefixed_js($formState->getValue('layout_builder_asset_js'));
+      $data['class'] = $formState->getValue('block_class');
+      $data['label'] = ($values['settings']['label']) ? $values['settings']['label'] : $values['settings']['views_label'];
+
+      $component->set('layout_builder_asset_js', $data);
+    }
+  }
+  else {
+    // Create the required data, which will create the block when
+    // the layout is saved.
+    if (!empty($values['layout_builder_asset'])) {
+      // ['settings']['label'];
+      $data['label'] = ($values['settings']['label']) ? $values['settings']['label'] : $values['settings']['views_label'];
+      $data['id'] = strtolower(str_replace(' ', '_', str_replace('-', '_', $data['label'])));
+      $i = 0;
+      while (\Drupal::entityTypeManager()->getStorage('layout_builder_asset_css')->load($data['id'])) {
+        $i++;
+        $data['id'] = $data['id'] . '_' . $i;
+      }
+      $prefixed_config_id = $formState->getValue('block_class');
+      $config_id = '.' . $prefixed_config_id . '.block-' . str_replace([':', '_'], ['', '-'], $cid);
+      $data['code'] = get_prefixed_css($formState->getValue('layout_builder_asset'), $config_id);
+      $data['status'] = TRUE;
+      $data['getoriginalId'] = $data['id'];
+      $data['nodeType'] = 'css';
+      $data['class'] = $formState->getValue('block_class');
+      $component->set('layout_builder_asset_style', $data);
+    }
+    if (!empty($values['layout_builder_asset_js'])) {
+      // ['settings']['label'];
+      $data['label'] = ($values['settings']['label']) ? $values['settings']['label'] : $values['settings']['views_label'];
+      $data['id'] = strtolower(str_replace(' ', '_', str_replace('-', '_', $data['label'])));
+      $i = 0;
+      while (\Drupal::entityTypeManager()->getStorage('layout_builder_asset_js')->load($data['id'])) {
+        $i++;
+        $data['id'] = $data['id'] . '_' . $i;
+      }
+      $data['code'] = get_prefixed_js($formState->getValue('layout_builder_asset_js'));
+      $data['class'] = $formState->getValue('block_class');
+      $data['status'] = TRUE;
+      $data['getoriginalId'] = $data['id'];
+      $data['nodeType'] = 'js';
+      $component->set('layout_builder_asset_js', $data);
+    }
+  }
+}
+
+/**
+ * Get the JS code.
+ *
+ * @param string $js
+ *   The raw js code.
+ *
+ * @return string
+ *   A string of the js code.
+ */
+function get_prefixed_js($js) {
+  return $js;
+}
+
+/**
+ * Get thr CSS code.
+ *
+ * @param string $css
+ *   The raw css code.
+ * @param string $prefix
+ *   The prefix class name for the css.
+ *
+ * @return string
+ *   Processed CSS.
+ */
+function get_prefixed_css($css, $prefix) {
+  $updatedCss = str_replace($prefix, '', $css);
+  $parts = explode('}', $updatedCss);
+  $mediaQueryStarted = FALSE;
+  foreach ($parts as &$part) {
+    if (empty($part) || trim($part) == "\r\n") {
+      continue;
+    }
+
+    $partDetails = explode('{', $part);
+    if (substr_count($part, "{") == 2) {
+      $mediaQuery = $partDetails[0] . "{";
+      $partDetails[0] = $partDetails[1];
+      $mediaQueryStarted = TRUE;
+    }
+
+    $subParts = explode(',', $partDetails[0]);
+    foreach ($subParts as &$subPart) {
+      if (trim($subPart) == "@font-face") {
+        continue;
+      }
+      $subPart = $prefix . ' ' . trim($subPart);
+    }
+
+    if (substr_count($part, "{") == 2) {
+      $part = $mediaQuery . "\n" . implode(', ', $subParts) . "{" . $partDetails[2];
+    }
+    elseif (empty($part[0]) && $mediaQueryStarted) {
+      $mediaQueryStarted = FALSE;
+      // Finish media query.
+      $part = implode(', ', $subParts) . "{" . $partDetails[2] . "}\n";
+    }
+    else {
+      $part = implode(', ', $subParts) . "{" . $partDetails[1];
+    }
+  }
+  $prefixedCss = implode("}\n", $parts);
+  $trim_prefixedCss = rtrim((string) $prefixedCss);
+
+  return $trim_prefixedCss;
+}
+
+/**
+ * Gets the entity types.
+ *
+ * @param array $types
+ *   Asset entity type.
+ *
+ * @return array
+ *   The entity types.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ */
+function layout_builder_asset_get_entity_types(array $types = []) {
+  $asset_entity_types = &drupal_static(__FUNCTION__);
+  if (!isset($asset_entity_types)) {
+    $entity_types['layout_builder_asset_css'] = \Drupal::entityTypeManager()->getDefinition('layout_builder_asset_css');
+    $entity_types['layout_builder_asset_js'] = \Drupal::entityTypeManager()->getDefinition('layout_builder_asset_js');
+
+    $asset_entity_types = [];
+    foreach ($entity_types as $entity_type_id => $entity_type) {
+      $asset_entity_types[$entity_type_id] = $entity_type;
+    }
+  }
+  if (!empty($types)) {
+    return array_intersect_key($asset_entity_types, array_flip($types));
+  }
+  return $asset_entity_types;
+}
+
+/**
+ * Implements hook_cache_flush().
+ *
+ * Delete all asset files.
+ */
+function layout_builder_asset_cache_flush() {
+  // LayoutBuilderAssetFileStorage::deleteAllFiles();
+}
+
+/**
+ * Get the assets for the layout builder.
+ *
+ * @param null|mixed $active
+ *   Active config.
+ * @param array $types
+ *   Entity Type.
+ *
+ * @return array
+ *   Array of assets required to the layout builder.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ */
+function layout_builder_asset_get_assets($active = NULL, array $types = []) {
+  /** @var \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager */
+  $entity_type_manager = \Drupal::entityTypeManager();
+  $assets = [];
+  foreach (layout_builder_asset_get_entity_types($types) as $entity_type_id => $entity_type) {
+    $entity_type_storage = $entity_type_manager->getStorage($entity_type_id);
+    $asset_ids = $entity_type_storage->getQuery()->execute();
+    foreach ($entity_type_storage->loadMultiple($asset_ids) as $asset) {
+
+      // Get both active and not active assets.
+      if (is_null($active)) {
+        $assets[] = $asset;
+      }
+      else {
+        $access = $asset->access('view');
+
+        // Get only active assets.
+        if ($active && $access) {
+          $assets[] = $asset;
+        }
+        // Get only deactive assets.
+        elseif (!$active && !$access) {
+          $assets[] = $asset;
+        }
+      }
+    }
+  }
+  return $assets;
+}
+
+/**
+ * Implements hook_library_info_build().
+ *
+ * Map the library IDs defined in @see asset_injector_page_attachments() to the
+ * actual assets. Note that drupal prefixes the IDs with our module name so we
+ * must not do that here.
+ */
+function layout_builder_asset_library_info_build() {
+  $libraries = [];
+
+  foreach (layout_builder_asset_get_assets() as $asset) {
+    if ($library_info = $asset->libraryInfo()) {
+
+      if ($asset->libraryNameSuffix()) {
+        $libraries[$asset->libraryNameSuffix()] = $library_info;
+      }
+    }
+  }
+  \Drupal::moduleHandler()
+    ->alter('layout_builder_asset_library_info_build', $libraries);
+  return $libraries;
+}
+
+/**
+ * Implements hook_entity_type_build().
+ *
+ * Mark our entities for use in @see asset_injector_get_entity_types().
+ * This way contrib modules can add additional assets by implementing
+ * \Drupal\asset_injector\AssetInjectorInterface.
+ */
+function layout_builder_asset_entity_type_build(array &$entity_types) {
+  foreach ($entity_types as $entity_type) {
+    if ($entity_type instanceof ConfigEntityType) {
+      $interfaces = class_implements($entity_type->getClass());
+      if (isset($interfaces[LayoutBuilderAssetInterface::class])) {
+        // Mark as ours.
+        $entity_type->set('layout_builder_asset_entity_type', TRUE);
+        // Add our duplicate-form.
+        $path = $entity_type->getLinkTemplate('canonical');
+        $entity_type->setLinkTemplate('duplicate-form', "$path/duplicate");
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+layout_builder_asset.development:
+  title: 'Layout Builder Assets'
+  route_name: layout_builder_asset.development
+  description: 'Update assets to the page output added via layout builder blocks.'
+  parent: system.admin_config_development
+
+entity.layout_builder_asset_css.collection:
+  title: 'Edit Layout Builder CSS Injector'
+  route_name: entity.layout_builder_asset_css.collection
+  description: 'Edit CSS to the page output added in the layout builder blocks.'
+  parent: layout_builder_asset.development
+
+entity.layout_builder_asset_js.collection:
+  title: 'Edit Layout Builder JS Injector'
+  route_name: entity.layout_builder_asset_js.collection
+  description: 'Edit JS to the page output added in the layout builder blocks.'
+  parent: layout_builder_asset.development

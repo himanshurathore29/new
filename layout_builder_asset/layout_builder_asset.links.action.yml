@@ -1,0 +1,10 @@
+entity.layout_builder_asset_css.add_form:
+  route_name: 'entity.layout_builder_asset_css.add_form'
+  title: 'Add Layout Builder CSS Injector'
+  appears_on:
+    - entity.layout_builder_asset_css.collection
+entity.layout_builder_asset_js.add_form:
+  route_name: 'entity.layout_builder_asset_js.add_form'
+  title: 'Add Layout Builder JS Injector'
+  appears_on:
+    - entity.layout_builder_asset_js.collection

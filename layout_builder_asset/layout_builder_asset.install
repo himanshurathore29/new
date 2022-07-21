@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * @file
+ * Contains install and uninstall hooks.
+ */
+
+use Drupal\Core\File\FileSystemInterface;
+
+/**
+ * Implements hook_requirements().
+ */
+function layout_builder_asset_requirements($phase) {
+  $requirements = [];
+  $uri = 'public://layout_builder_asset';
+  $directory = \Drupal::service('stream_wrapper_manager')->normalizeUri($uri);
+  \Drupal::service('file_system')->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
+  $requirements['layout_builder_asset'] = [
+    'title' => t('Layout Builder Css'),
+    'value' => is_writable($directory) ? t('Directory is writable') : t('Directory not writable'),
+    'description' => t('%directory should have write access.', ['%directory' => $directory]),
+    'severity' => is_writable($directory) ? REQUIREMENT_OK : REQUIREMENT_ERROR,
+  ];
+  return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function layout_builder_asset_uninstall() {
+  \Drupal::service('file_system')->deleteRecursive('public://layout_builder_asset');
+}

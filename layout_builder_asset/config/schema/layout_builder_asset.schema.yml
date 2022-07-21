@@ -1,0 +1,32 @@
+layout_builder_asset.css.*:
+  type: config_entity
+  label: 'Css Injector config'
+  mapping:
+    id:
+      type: string
+      label: 'ID'
+    label:
+      type: label
+      label: 'Label'
+    code:
+      type: text
+      label: 'Entered CSS'
+    class:
+      type: text
+      label: 'Class'
+layout_builder_asset.js.*:
+  type: config_entity
+  label: 'Js Injector config'
+  mapping:
+    id:
+      type: string
+      label: 'ID'
+    label:
+      type: label
+      label: 'Label'
+    code:
+      type: text
+      label: 'Entered Js'
+    class:
+      type: text
+      label: 'Class'

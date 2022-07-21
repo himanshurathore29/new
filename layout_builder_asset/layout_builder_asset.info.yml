@@ -1,0 +1,9 @@
+name: Layout Builder Asset
+description: Provide Interface to add css and js.
+package: Development
+type: module
+core: 8.x
+core_version_requirement: ^8 || ^9
+configure: layout_builder_asset.development
+dependencies:
+  - drupal:layout_builder
